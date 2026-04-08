@@ -27,7 +27,7 @@ Key innovations:
 
 ```bash
 pip install torch torchvision torchaudio   # PyTorch >= 2.0 recommended (enables Flash Attention)
-pip install transformers                    # HuggingFace (GPT-2, BERT, T5, LLaMA, DeepSeek)
+pip install transformers                    # HuggingFace (GPT-2, BERT, LLaMA, DeepSeek)
 pip install deepspeed                       # optional, for multi-GPU / ZeRO-2 training
 pip install pandas numpy scikit-learn matplotlib
 ```
@@ -39,7 +39,7 @@ pip install pandas numpy scikit-learn matplotlib
 Place your traffic CSV under `datasets/<data_path>/traffic.csv`. The included dataset is:
 
 ```
-datasets/zte4g/traffic.csv   # Real-world 4G/5G base station traffic (ZTE)
+datasets/zte4g/traffic.csv   # Real-world 4G base station traffic
 ```
 
 Expected format: rows are time steps (datetime index), columns are base station IDs.
@@ -85,7 +85,6 @@ Edit `LLM_MODEL` in `run_optimized.sh` or pass the corresponding flags:
 |-----|--------------|------------|---------------|
 | GPT-2 | `GPT2` | 768 | 16 |
 | BERT | `BERT` | 768 | 6 |
-| T5 | `T5` | 512 | 6 |
 | LLaMA | `LLAMA` | 4096 | 16 |
 | DeepSeek | `deepseek` | 4096 | 16 |
 

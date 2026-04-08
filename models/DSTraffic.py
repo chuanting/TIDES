@@ -396,8 +396,6 @@ class Model(nn.Module):
             self._init_llama_model(config_args)
         elif llm_type == 'deepseek':
             self._init_deepseek_model(config_args)
-        elif llm_type == 'mistral':
-            self._init_mistral_model(config_args)
         else:
             raise ValueError(f"Unsupported LLM type: {llm_type}")
 
@@ -435,34 +433,6 @@ class Model(nn.Module):
             self.tokenizer = GPT2Tokenizer.from_pretrained(
                 model_name, trust_remote_code=True
             )
-
-    def _init_mistral_model(self, config_args):
-        """Initialize Mistral model"""
-        try:
-            from transformers import MistralConfig, MistralForCausalLM, AutoTokenizer
-
-            model_name = "mistralai/Mistral-7B-Instruct-v0.2"  # Check for open versions
-            self.mistral_config = MistralConfig.from_pretrained(
-                model_name, **config_args
-            )
-
-            # Load only the base model without the LM head to save memory
-            self.llm_model = MistralForCausalLM.from_pretrained(
-                model_name,
-                config=self.mistral_config,
-                trust_remote_code=True,
-                torch_dtype=torch.bfloat16,
-                device_map="auto"
-            ).get_base_model()
-
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                trust_remote_code=True
-            )
-
-        except Exception as e:
-            logging.warning(f"Failed to load Mistral model: {e}")
-            raise
 
     def _init_bert_model(self, config_args):
         """Initialize BERT model"""

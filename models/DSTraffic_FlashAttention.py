@@ -5,9 +5,7 @@ from transformers import (
     GPT2Config, GPT2Model, GPT2Tokenizer,
     BertConfig, BertModel, BertTokenizer,
     LlamaConfig, LlamaModel, LlamaTokenizer,
-    AutoModelForCausalLM, AutoTokenizer, AutoConfig,
-    T5Config, T5Model, T5Tokenizer,  # 添加这一行
-    AutoModelForSeq2SeqLM, T5Tokenizer  # 如果需要 Seq2Seq 版本
+    AutoModelForCausalLM, AutoTokenizer, AutoConfig
 )
 from layers.Embed import PatchEmbedding
 from layers.StandardNorm import Normalize
@@ -308,12 +306,12 @@ class Model(nn.Module):
         self.num_tokens = 1000
         self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
 
-        # 🔥 使用优化版本的ReprogrammingLayer
+        # 使用优化版本的ReprogrammingLayer
         self.reprogramming_layer = ReprogrammingLayer(
             configs.d_model, configs.n_heads, self.d_ff, self.d_llm
         )
 
-        # 🔥 使用优化版本的SpatialAttentionLayer
+        # 使用优化版本的SpatialAttentionLayer
         if self.use_spatial_attn:
             self.spatial_attn = SpatialAttentionLayer(
                 in_channels=configs.d_model,
@@ -361,8 +359,6 @@ class Model(nn.Module):
             self._init_llama(configs, flash_attn_config)
         elif llm_model_type == 'DEEPSEEK':
             self._init_deepseek(configs, flash_attn_config)
-        elif llm_model_type == 'T5':  # 新增T5支持
-            self._init_t5(configs, flash_attn_config)
         else:
             raise ValueError(f"Unsupported LLM model type: {configs.llm_model}")
 
@@ -499,47 +495,6 @@ class Model(nn.Module):
             logging.warning(f"Failed to load DeepSeek: {e}")
             raise
 
-    def _init_t5(self, configs, flash_attn_config):
-        """初始化T5模型"""
-        try:
-            from transformers import T5Config, T5Model, T5Tokenizer
-
-            model_name = 'google-t5/t5-small'
-            # model_name = 'google/t5-efficient-base'
-
-            t5_config = T5Config.from_pretrained(model_name)
-            # 设置层数
-            t5_config.num_layers = configs.llm_layers  # encoder layers
-            t5_config.num_decoder_layers = configs.llm_layers  # decoder layers
-            t5_config.output_attentions = True
-            t5_config.output_hidden_states = True
-
-            # 启用Flash Attention
-            # if PYTORCH_SDPA_AVAILABLE:
-            #     t5_config._attn_implementation = 'sdpa'
-
-            self.llm_model = T5Model.from_pretrained(
-                model_name,
-                config=t5_config,
-                trust_remote_code=True,
-                local_files_only=False,
-            )
-
-            self.tokenizer = T5Tokenizer.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                local_files_only=False,
-            )
-
-            # T5的特殊配置
-            self.d_llm = t5_config.d_model  # T5的隐藏层维度
-
-            logging.info(f"✓ T5 model initialized with d_model={self.d_llm}")
-
-        except Exception as e:
-            logging.warning(f"Failed to load T5: {e}")
-            raise
-
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         """Forward pass for the DSTraffic model"""
         dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
@@ -597,7 +552,7 @@ class Model(nn.Module):
 
         enc_out, n_vars = self.patch_embedding(patch_input)
 
-        # 🔥 Apply spatial attention with Flash Attention optimization
+        # Apply spatial attention with Flash Attention optimization
         if self.use_spatial_attn and hasattr(self, 'spatial_attn'):
             adj_matrix = getattr(self, 'adj', None)
             if adj_matrix is not None and adj_matrix.device != x_enc.device:
@@ -606,69 +561,28 @@ class Model(nn.Module):
             spatial_out, _ = self.spatial_attn(enc_out, adj_matrix)
             enc_out = spatial_out.contiguous().view(B * N, -1, enc_out.size(-1))
 
-        # 🔥 Apply reprogramming layer with Flash Attention optimization
+        # Apply reprogramming layer with Flash Attention optimization
         enc_out = self.reprogramming_layer(enc_out, source_embeddings, source_embeddings)
 
         # Concatenate prompt embeddings with encoded input
         llm_encoder_input = torch.cat([prompt_embeddings, enc_out], dim=1)
 
-        # ==================== T5 特殊处理 ====================
-        if self.llm_type == 'T5':
-            # T5 需要 decoder 输入
-            # 创建 decoder 输入：使用 pad token 或特殊的开始 token
-            decoder_start_token_id = self.tokenizer.pad_token_id
-            if decoder_start_token_id is None:
-                decoder_start_token_id = 0
-
-            # 创建 decoder input ids (batch_size, 1)
-            decoder_input_ids = torch.full(
-                (llm_encoder_input.size(0), 1),
-                decoder_start_token_id,
-                dtype=torch.long,
-                device=x_enc.device
-            )
-
-            # 获取 decoder embeddings
-            decoder_inputs_embeds = self.llm_model.get_input_embeddings()(decoder_input_ids)
-
-            # 扩展 decoder 输入以匹配我们需要的输出长度
-            # 这里我们扩展到与 patch_nums 相关的长度
-            decoder_inputs_embeds = decoder_inputs_embeds.repeat(1, self.patch_nums, 1)
-
-            # Pass through T5 model with mixed precision
-            if self.use_mixed_precision and torch.cuda.is_available():
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                    llm_output = self.llm_model(
-                        inputs_embeds=llm_encoder_input,
-                        decoder_inputs_embeds=decoder_inputs_embeds,
-                        return_dict=True
-                    )
-            else:
-                llm_output = self.llm_model(
-                    inputs_embeds=llm_encoder_input,
-                    decoder_inputs_embeds=decoder_inputs_embeds,
-                    return_dict=True
-                )
-
-            # T5 输出在 last_hidden_state 中
-            dec_out = llm_output.last_hidden_state
-        else:
-            # ==================== 其他模型（GPT-2, BERT 等）====================
-            # Pass through LLM model with mixed precision
-            if self.use_mixed_precision and torch.cuda.is_available():
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                    llm_output = self.llm_model(inputs_embeds=llm_encoder_input)
-            else:
+        # ==================== 其他模型（GPT-2, BERT 等）====================
+        # Pass through LLM model with mixed precision
+        if self.use_mixed_precision and torch.cuda.is_available():
+            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
                 llm_output = self.llm_model(inputs_embeds=llm_encoder_input)
+        else:
+            llm_output = self.llm_model(inputs_embeds=llm_encoder_input)
 
-            # Handle different output structures
-            if hasattr(llm_output, 'last_hidden_state'):
-                dec_out = llm_output.last_hidden_state
-            elif hasattr(llm_output, 'hidden_states') and llm_output.hidden_states is not None:
-                dec_out = llm_output.hidden_states[-1]
-            else:
-                logging.warning("Unable to find hidden states. Using logits instead.")
-                dec_out = llm_output.logits
+        # Handle different output structures
+        if hasattr(llm_output, 'last_hidden_state'):
+            dec_out = llm_output.last_hidden_state
+        elif hasattr(llm_output, 'hidden_states') and llm_output.hidden_states is not None:
+            dec_out = llm_output.hidden_states[-1]
+        else:
+            logging.warning("Unable to find hidden states. Using logits instead.")
+            dec_out = llm_output.logits
 
         # Extract necessary features and reshape
         dec_out = dec_out.narrow(2, 0, self.d_ff)
@@ -691,55 +605,6 @@ class Model(nn.Module):
         dec_out = self.normalize_layers(dec_out, 'denorm')
 
         return dec_out
-
-    def _forward_t5(self, encoder_inputs_embeds, dec_reference_embeds):
-        """
-        T5模型的特殊前向传播
-
-        Args:
-            encoder_inputs_embeds: Encoder的输入embeddings [B*N, L, D]
-            dec_reference_embeds: 用于生成decoder输入的参考embeddings [B*N, L', D]
-
-        Returns:
-            T5模型的输出
-        """
-        # 1. 通过encoder
-        encoder_outputs = self.llm_model.encoder(
-            inputs_embeds=encoder_inputs_embeds,
-            return_dict=True
-        )
-
-        # 2. 创建decoder输入
-        # 方法1: 使用起始token的embedding
-        batch_size = encoder_inputs_embeds.shape[0]
-        decoder_start_token_id = self.llm_model.config.decoder_start_token_id
-
-        if decoder_start_token_id is None:
-            # 如果没有定义，使用pad_token_id
-            decoder_start_token_id = self.llm_model.config.pad_token_id
-
-        # 获取起始token的embedding
-        decoder_start_embeds = self.llm_model.get_input_embeddings()(
-            torch.tensor([[decoder_start_token_id]], device=encoder_inputs_embeds.device).expand(batch_size, -1)
-        )
-
-        # 方法2: 使用编码后的时序信息作为decoder输入
-        # 这里我们结合起始token和参考embeddings
-        # 取前几个时间步作为decoder输入
-        decoder_seq_len = min(dec_reference_embeds.shape[1], 32)  # 限制decoder序列长度
-        decoder_inputs_embeds = torch.cat([
-            decoder_start_embeds,
-            dec_reference_embeds[:, :decoder_seq_len - 1, :]
-        ], dim=1)
-
-        # 3. 通过decoder
-        decoder_outputs = self.llm_model.decoder(
-            inputs_embeds=decoder_inputs_embeds,
-            encoder_hidden_states=encoder_outputs.last_hidden_state,
-            return_dict=True
-        )
-
-        return decoder_outputs
 
     def calcute_lags(self, x_enc):
         """Calculate autocorrelation lags using FFT"""

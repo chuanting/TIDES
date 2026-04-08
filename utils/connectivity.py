@@ -111,32 +111,18 @@ def visualize_base_stations(base_stations, connectivity=None, top_connections=20
     plt.show()
 
 
-def analyze_base_station_connectivity(file_path, bs_ids):
+def analyze_base_station_connectivity(file_path):
     """
     Analyze base station connectivity from CSV file
     """
     # Load data
     base_stations = pd.read_csv(file_path)
-    # print('CHECK BSs', base_stations.dtypes)
-    # base_stations = base_stations[base_stations['label'] == bs_ids]
-    base_stations.drop(['label'], axis=1, inplace=True)
-    # print(f"Loaded {len(base_stations)} base stations")
-
     # Calculate distances and connectivity
     distances, connectivity = calculate_distances_and_connectivity(base_stations)
     # print(f"Calculated distances and connectivity between {len(distances)} pairs of base stations")
 
     # Create connectivity matrix
     conn_matrix, ids = create_connectivity_matrix(base_stations, connectivity)
-
-    # Find most connected pairs
-    most_connected = sorted(connectivity.items(), key=lambda x: x[1], reverse=True)[:5]
-    # print("\nMost connected base station pairs:")
-    # for (id1, id2), conn in most_connected:
-    #     print(f"Base stations {id1} and {id2}: Connectivity = {conn:.6f} (Distance = {1 / conn:.2f} km)")
-
-    # Visualize the base stations and their connectivity
-    # visualize_base_stations(base_stations, connectivity)
 
     return base_stations, distances, connectivity, conn_matrix, ids
 

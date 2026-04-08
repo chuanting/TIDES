@@ -136,8 +136,8 @@ def get_device(args):
 def prepare_adjacency_matrix(args, device):
     logger.info("Calculating adjacency matrix")
     try:
-        file_path = os.path.join(args.root_path, args.data_path, 'bs_label.csv')
-        _, _, _, adj, ids = analyze_base_station_connectivity(file_path, args.cluster)
+        file_path = os.path.join(args.root_path, args.data_path, 'bs.csv')
+        _, _, _, adj, ids = analyze_base_station_connectivity(file_path)
         adj = calc_gso(adj, args.gso_type)
         adj = torch.from_numpy(adj.toarray().astype(np.float32)).to(device)
         return adj, ids

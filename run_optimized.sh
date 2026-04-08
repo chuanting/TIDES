@@ -16,15 +16,13 @@ N_HEADS=8
 
 # LLM 维度配置
 if [ "$LLM_MODEL" = "GPT2" ]; then
-  LLM_DIM=768;  LLM_LAYERS=16
+  LLM_DIM=768;  LLM_LAYERS=6
 elif [ "$LLM_MODEL" = "BERT" ]; then
   LLM_DIM=768;  LLM_LAYERS=6
 elif [ "$LLM_MODEL" = "LLAMA" ]; then
   LLM_DIM=4096; LLM_LAYERS=16
 elif [ "$LLM_MODEL" = "deepseek" ]; then
   LLM_DIM=4096; LLM_LAYERS=16
-elif [ "$LLM_MODEL" = "T5" ]; then
-  LLM_DIM=512;  LLM_LAYERS=6
 else
   echo "Unknown LLM model: $LLM_MODEL"; exit 1
 fi
